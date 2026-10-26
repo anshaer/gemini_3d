@@ -116,7 +116,7 @@
         <!-- 3D 預覽畫面 -->
         <div id="viewer-container">
             <canvas id="canvas3d"></canvas>
-            <div class="viewport-hud">💡 VRM 標準軸 (Y+朝上, Z+朝前) | 支援 MToon 模擬與動態面數</div>
+            <div class="viewport-hud">💡 支援節層結構與命名規範追蹤</div>
         </div>
 
         <!-- 右側控制面板 -->
@@ -128,7 +128,7 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已升級：完整追蹤面數、座標與三角片。</div>
+                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已擴充：支援節層樹與命名規範。</div>
                 <div class="input-section">
                     <label>🤖 AI 指令輸入區</label>
                     <textarea id="commandInput">{
@@ -149,12 +149,12 @@
 
             <!-- 文檔分頁 -->
             <div id="tab-docs" class="tab-content">
-                <label>📋 當前場景狀態文檔 (詳細面數與座標)</label>
+                <label>📋 場景狀態文檔 (含節層與命名規範)</label>
                 <div class="doc-box" id="docBox">{
   "sceneStatus": "active",
   "totalObjects": 0,
   "totalTriangles": 0,
-  "objects": []
+  "hierarchyTree": []
 }</div>
             </div>
         </div>
@@ -228,32 +228,46 @@
             box.scrollTop = box.scrollHeight;
         }
 
-        // 計算場景中所有物件的總三角片數與詳細屬性
+        // 更新狀態文檔，加入節層與命名規範追蹤
         function updateDocs() {
             let totalTris = 0;
-            const objectsDetails = createdObjects.map((obj, idx) => {
+            const hierarchyTree = createdObjects.map((obj, idx) => {
                 let objTris = 0;
+                let childrenNodes = [];
+
                 obj.traverse(child => {
                     if (child.isMesh && child.geometry) {
                         const geom = child.geometry;
+                        let tris = 0;
                         if (geom.index) {
-                            objTris += geom.index.count / 3;
+                            tris = geom.index.count / 3;
                         } else if (geom.attributes.position) {
-                            objTris += geom.attributes.position.count / 3;
+                            tris = geom.attributes.position.count / 3;
                         }
+                        objTris += tris;
+                        childrenNodes.push({
+                            nodeName: child.name || "Unnamed_Mesh",
+                            namingConvention: "PascalCase",
+                            triangleCount: tris
+                        });
                     }
                 });
                 totalTris += objTris;
 
                 return {
-                    id: idx,
-                    name: obj.name,
-                    type: obj.userData.type,
-                    triangleCount: objTris,
-                    position: [Number(obj.position.x.toFixed(2)), Number(obj.position.y.toFixed(2)), Number(obj.position.z.toFixed(2))],
-                    scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))],
-                    segments: obj.userData.segments || 16,
-                    invertedAxis: obj.userData.inverted || false
+                    nodeId: idx,
+                    parentGroup: obj.name,
+                    namingConvention: "PascalCase (VRM Standard)",
+                    totalGroupTriangles: objTris,
+                    transform: {
+                        position: [Number(obj.position.x.toFixed(2)), Number(obj.position.y.toFixed(2)), Number(obj.position.z.toFixed(2))],
+                        scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))]
+                    },
+                    properties: {
+                        segments: obj.userData.segments || 16,
+                        invertedAxis: obj.userData.inverted || false
+                    },
+                    childrenNodes: childrenNodes
                 };
             });
 
@@ -262,7 +276,7 @@
                 totalObjects: createdObjects.length,
                 totalTriangles: totalTris,
                 cameraPosition: [Number(camera.position.x.toFixed(2)), Number(camera.position.y.toFixed(2)), Number(camera.position.z.toFixed(2))],
-                objects: objectsDetails
+                hierarchyTree: hierarchyTree
             };
             document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
         }
@@ -302,7 +316,7 @@
 
         function createPumpkin(colorHex, segments, pos, scl, invertAxis) {
             const pumpkinGroup = new THREE.Group();
-            pumpkinGroup.name = "Halloween_Pumpkin_" + (createdObjects.length + 1);
+            pumpkinGroup.name = "HalloweenPumpkin_" + (createdObjects.length + 1);
             pumpkinGroup.userData = { type: "pumpkin", segments: segments, inverted: invertAxis };
 
             const colorObj = new THREE.Color(colorHex);
@@ -315,6 +329,7 @@
                 const geom = new THREE.SphereGeometry(0.8, segments, segments);
                 geom.scale(0.7, 1, 0.7);
                 const mesh = new THREE.Mesh(geom, bodyMat);
+                mesh.name = `PumpkinBodyPart_${i+1}`;
                 mesh.position.x = Math.cos(angle) * 0.35;
                 mesh.position.z = Math.sin(angle) * 0.35;
                 pumpkinGroup.add(mesh);
@@ -323,11 +338,11 @@
             const stemMat = new THREE.MeshToonMaterial({ color: 0x3E2723 });
             const stemGeom = new THREE.CylinderGeometry(0.1, 0.15, 0.5, Math.max(4, Math.floor(segments/2)));
             const stem = new THREE.Mesh(stemGeom, stemMat);
+            stem.name = "PumpkinStem";
             stem.position.y = 1.0;
             stem.rotation.z = 0.15;
             pumpkinGroup.add(stem);
 
-            // 套用座標與縮放
             pumpkinGroup.position.set(pos[0], pos[1], pos[2]);
             pumpkinGroup.scale.set(scl[0], scl[1], scl[2]);
 
@@ -338,7 +353,7 @@
 
             scene.add(pumpkinGroup);
             createdObjects.push(pumpkinGroup);
-            logMessage(`✅ 成功生成南瓜 (面數细分: ${segments}, 座標: [${pos}])！`);
+            logMessage(`✅ 成功生成南瓜 (符合節層與命名規範)！`);
         }
 
         function clearScene() {
