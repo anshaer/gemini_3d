@@ -72,6 +72,13 @@
             overflow-y: auto; margin-bottom: 15px; min-height: 120px; max-height: 250px;
         }
 
+        .doc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .btn-copy {
+            background-color: #2e7d32; color: white; border: none; padding: 4px 10px;
+            border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: 0.2s;
+        }
+        .btn-copy:hover { background-color: #388e3c; }
+
         .doc-box {
             flex: 1; background: #0f0f0f; border: 1px solid #333; border-radius: 6px;
             padding: 10px; font-family: monospace; font-size: 0.8rem; color: #ffccbc;
@@ -116,7 +123,7 @@
         <!-- 3D 預覽畫面 -->
         <div id="viewer-container">
             <canvas id="canvas3d"></canvas>
-            <div class="viewport-hud">💡 支援節層結構與命名規範追蹤</div>
+            <div class="viewport-hud">💡 支援一鍵複製狀態文檔</div>
         </div>
 
         <!-- 右側控制面板 -->
@@ -128,7 +135,7 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已擴充：支援節層樹與命名規範。</div>
+                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已支援一鍵複製按鈕。</div>
                 <div class="input-section">
                     <label>🤖 AI 指令輸入區</label>
                     <textarea id="commandInput">{
@@ -149,7 +156,10 @@
 
             <!-- 文檔分頁 -->
             <div id="tab-docs" class="tab-content">
-                <label>📋 場景狀態文檔 (含節層與命名規範)</label>
+                <div class="doc-header">
+                    <label>📋 場景狀態文檔</label>
+                    <button class="btn-copy" onclick="copyStateDoc()">📋 複製文檔</button>
+                </div>
                 <div class="doc-box" id="docBox">{
   "sceneStatus": "active",
   "totalObjects": 0,
@@ -228,7 +238,6 @@
             box.scrollTop = box.scrollHeight;
         }
 
-        // 更新狀態文檔，加入節層與命名規範追蹤
         function updateDocs() {
             let totalTris = 0;
             const hierarchyTree = createdObjects.map((obj, idx) => {
@@ -240,149 +249,3 @@
                         const geom = child.geometry;
                         let tris = 0;
                         if (geom.index) {
-                            tris = geom.index.count / 3;
-                        } else if (geom.attributes.position) {
-                            tris = geom.attributes.position.count / 3;
-                        }
-                        objTris += tris;
-                        childrenNodes.push({
-                            nodeName: child.name || "Unnamed_Mesh",
-                            namingConvention: "PascalCase",
-                            triangleCount: tris
-                        });
-                    }
-                });
-                totalTris += objTris;
-
-                return {
-                    nodeId: idx,
-                    parentGroup: obj.name,
-                    namingConvention: "PascalCase (VRM Standard)",
-                    totalGroupTriangles: objTris,
-                    transform: {
-                        position: [Number(obj.position.x.toFixed(2)), Number(obj.position.y.toFixed(2)), Number(obj.position.z.toFixed(2))],
-                        scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))]
-                    },
-                    properties: {
-                        segments: obj.userData.segments || 16,
-                        invertedAxis: obj.userData.inverted || false
-                    },
-                    childrenNodes: childrenNodes
-                };
-            });
-
-            const doc = {
-                sceneStatus: "active",
-                totalObjects: createdObjects.length,
-                totalTriangles: totalTris,
-                cameraPosition: [Number(camera.position.x.toFixed(2)), Number(camera.position.y.toFixed(2)), Number(camera.position.z.toFixed(2))],
-                hierarchyTree: hierarchyTree
-            };
-            document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
-        }
-
-        function parseCommandSafe(rawText) {
-            try {
-                return JSON.parse(rawText);
-            } catch (e1) {
-                try {
-                    let fixed = rawText.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":');
-                    return JSON.parse(fixed);
-                } catch (e2) {
-                    logMessage("⚠️ JSON 解析微瑕，自動套用預設建構！");
-                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, position: [0,0,0], scale: [1,1,1], invertAxis: false };
-                }
-            }
-        }
-
-        function executeCommand() {
-            const rawText = document.getElementById('commandInput').value;
-            logMessage("執行自訂指令...");
-            const cmd = parseCommandSafe(rawText);
-
-            if (cmd.action === "create_geometry" || cmd.type === "pumpkin") {
-                createPumpkin(
-                    cmd.color || "#ff7518", 
-                    cmd.segments || 16, 
-                    cmd.position || [0, 0, 0], 
-                    cmd.scale || [1, 1, 1], 
-                    cmd.invertAxis || false
-                );
-            } else {
-                createPumpkin("#98FF98", 16, [0, 0, 0], [1, 1, 1], false);
-            }
-            updateDocs();
-        }
-
-        function createPumpkin(colorHex, segments, pos, scl, invertAxis) {
-            const pumpkinGroup = new THREE.Group();
-            pumpkinGroup.name = "HalloweenPumpkin_" + (createdObjects.length + 1);
-            pumpkinGroup.userData = { type: "pumpkin", segments: segments, inverted: invertAxis };
-
-            const colorObj = new THREE.Color(colorHex);
-            colorObj.convertSRGBToLinear();
-
-            const bodyMat = new THREE.MeshToonMaterial({ color: colorObj, roughness: 0.3 });
-
-            for (let i = 0; i < 6; i++) {
-                const angle = (i / 6) * Math.PI * 2;
-                const geom = new THREE.SphereGeometry(0.8, segments, segments);
-                geom.scale(0.7, 1, 0.7);
-                const mesh = new THREE.Mesh(geom, bodyMat);
-                mesh.name = `PumpkinBodyPart_${i+1}`;
-                mesh.position.x = Math.cos(angle) * 0.35;
-                mesh.position.z = Math.sin(angle) * 0.35;
-                pumpkinGroup.add(mesh);
-            }
-
-            const stemMat = new THREE.MeshToonMaterial({ color: 0x3E2723 });
-            const stemGeom = new THREE.CylinderGeometry(0.1, 0.15, 0.5, Math.max(4, Math.floor(segments/2)));
-            const stem = new THREE.Mesh(stemGeom, stemMat);
-            stem.name = "PumpkinStem";
-            stem.position.y = 1.0;
-            stem.rotation.z = 0.15;
-            pumpkinGroup.add(stem);
-
-            pumpkinGroup.position.set(pos[0], pos[1], pos[2]);
-            pumpkinGroup.scale.set(scl[0], scl[1], scl[2]);
-
-            if (invertAxis) {
-                pumpkinGroup.rotation.x = Math.PI;
-                logMessage("🔄 偵測到軸向反轉指令");
-            }
-
-            scene.add(pumpkinGroup);
-            createdObjects.push(pumpkinGroup);
-            logMessage(`✅ 成功生成南瓜 (符合節層與命名規範)！`);
-        }
-
-        function clearScene() {
-            createdObjects.forEach(obj => scene.remove(obj));
-            createdObjects = [];
-            logMessage("🗑️ 場景已清空。");
-            updateDocs();
-        }
-
-        function exportGLB() {
-            if (createdObjects.length === 0) {
-                alert("目前場景沒有任何物件可匯出！");
-                return;
-            }
-            const exporter = new THREE.GLTFExporter();
-            const exportGroup = new THREE.Group();
-            createdObjects.forEach(obj => exportGroup.add(obj.clone()));
-
-            exporter.parse(exportGroup, function (gltf) {
-                const blob = new Blob([gltf], { type: 'application/octet-stream' });
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                link.download = 'vrm_ready_model.glb';
-                link.click();
-                logMessage("📥 成功匯出 VRM 適用之 .glb 檔案！");
-            }, { binary: true });
-        }
-
-        window.onload = init3D;
-    </script>
-</body>
-</html>
