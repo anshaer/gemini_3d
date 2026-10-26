@@ -128,14 +128,16 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 支援 sRGB MToon 模擬與動態拓撲引擎就緒。</div>
+                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已升級：完整追蹤面數、座標與三角片。</div>
                 <div class="input-section">
-                    <label>🤖 AI 指令輸入區 (支援動態面數與座標反轉)</label>
+                    <label>🤖 AI 指令輸入區</label>
                     <textarea id="commandInput">{
   "action": "create_geometry",
   "type": "pumpkin",
   "color": "#ff7518",
   "segments": 16,
+  "position": [0, 0, 0],
+  "scale": [1, 1, 1],
   "invertAxis": false
 }</textarea>
                     <div class="btn-group">
@@ -147,11 +149,12 @@
 
             <!-- 文檔分頁 -->
             <div id="tab-docs" class="tab-content">
-                <label>📋 當前場景狀態文檔 (State Doc)</label>
+                <label>📋 當前場景狀態文檔 (詳細面數與座標)</label>
                 <div class="doc-box" id="docBox">{
   "sceneStatus": "active",
-  "objectsInScene": 0,
-  "lastUpdated": "等待首次指令..."
+  "totalObjects": 0,
+  "totalTriangles": 0,
+  "objects": []
 }</div>
             </div>
         </div>
@@ -172,7 +175,6 @@
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, preserveDrawingBuffer: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
-            // 啟用 sRGB 顏色空間，確保貼圖與材質色彩正確
             renderer.outputEncoding = THREE.sRGBEncoding;
 
             controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -185,14 +187,13 @@
             dirLight.position.set(5, 10, 7);
             scene.add(dirLight);
 
-            // 網格輔助 (VRM 標準：Y朝上)
             const gridHelper = new THREE.GridHelper(20, 20, 0x98FF98, 0x333333);
             gridHelper.position.y = -0.01;
             scene.add(gridHelper);
 
             window.addEventListener('resize', onWindowResize);
             animate();
-            logMessage("渲染引擎就緒 (sRGB 色彩空間啟動)。");
+            logMessage("渲染引擎就緒。");
         }
 
         function animate() {
@@ -227,17 +228,41 @@
             box.scrollTop = box.scrollHeight;
         }
 
+        // 計算場景中所有物件的總三角片數與詳細屬性
         function updateDocs() {
+            let totalTris = 0;
+            const objectsDetails = createdObjects.map((obj, idx) => {
+                let objTris = 0;
+                obj.traverse(child => {
+                    if (child.isMesh && child.geometry) {
+                        const geom = child.geometry;
+                        if (geom.index) {
+                            objTris += geom.index.count / 3;
+                        } else if (geom.attributes.position) {
+                            objTris += geom.attributes.position.count / 3;
+                        }
+                    }
+                });
+                totalTris += objTris;
+
+                return {
+                    id: idx,
+                    name: obj.name,
+                    type: obj.userData.type,
+                    triangleCount: objTris,
+                    position: [Number(obj.position.x.toFixed(2)), Number(obj.position.y.toFixed(2)), Number(obj.position.z.toFixed(2))],
+                    scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))],
+                    segments: obj.userData.segments || 16,
+                    invertedAxis: obj.userData.inverted || false
+                };
+            });
+
             const doc = {
                 sceneStatus: "active",
-                objectsInScene: createdObjects.length,
-                objects: createdObjects.map((obj, idx) => ({ 
-                    id: idx, 
-                    name: obj.name, 
-                    type: obj.userData.type,
-                    segments: obj.userData.segments,
-                    inverted: obj.userData.inverted
-                }))
+                totalObjects: createdObjects.length,
+                totalTriangles: totalTris,
+                cameraPosition: [Number(camera.position.x.toFixed(2)), Number(camera.position.y.toFixed(2)), Number(camera.position.z.toFixed(2))],
+                objects: objectsDetails
             };
             document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
         }
@@ -251,7 +276,7 @@
                     return JSON.parse(fixed);
                 } catch (e2) {
                     logMessage("⚠️ JSON 解析微瑕，自動套用預設建構！");
-                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, invertAxis: false };
+                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, position: [0,0,0], scale: [1,1,1], invertAxis: false };
                 }
             }
         }
@@ -262,28 +287,29 @@
             const cmd = parseCommandSafe(rawText);
 
             if (cmd.action === "create_geometry" || cmd.type === "pumpkin") {
-                createPumpkin(cmd.color || "#ff7518", cmd.segments || 16, cmd.invertAxis || false);
+                createPumpkin(
+                    cmd.color || "#ff7518", 
+                    cmd.segments || 16, 
+                    cmd.position || [0, 0, 0], 
+                    cmd.scale || [1, 1, 1], 
+                    cmd.invertAxis || false
+                );
             } else {
-                createPumpkin("#98FF98", 16, false);
+                createPumpkin("#98FF98", 16, [0, 0, 0], [1, 1, 1], false);
             }
             updateDocs();
         }
 
-        function createPumpkin(colorHex, segments, invertAxis) {
+        function createPumpkin(colorHex, segments, pos, scl, invertAxis) {
             const pumpkinGroup = new THREE.Group();
-            pumpkinGroup.name = "Halloween_Pumpkin";
+            pumpkinGroup.name = "Halloween_Pumpkin_" + (createdObjects.length + 1);
             pumpkinGroup.userData = { type: "pumpkin", segments: segments, inverted: invertAxis };
 
-            // 模擬 MToon 二次元風格材質 (使用 MeshToonMaterial 呈現階梯式色塊感與 sRGB 色彩)
             const colorObj = new THREE.Color(colorHex);
-            colorObj.convertSRGBToLinear(); // 確保色彩空間正確
+            colorObj.convertSRGBToLinear();
 
-            const bodyMat = new THREE.MeshToonMaterial({ 
-                color: colorObj, 
-                roughness: 0.3 
-            });
+            const bodyMat = new THREE.MeshToonMaterial({ color: colorObj, roughness: 0.3 });
 
-            // 依據指令傳入的 segments 動態調整面數與拓撲精細度
             for (let i = 0; i < 6; i++) {
                 const angle = (i / 6) * Math.PI * 2;
                 const geom = new THREE.SphereGeometry(0.8, segments, segments);
@@ -301,18 +327,18 @@
             stem.rotation.z = 0.15;
             pumpkinGroup.add(stem);
 
-            // 座標軸與中心點控制：預設 VRM 標準 (Y朝上)，若 invertAxis 為 true 則進行反轉/調整
-            if (invertAxis) {
-                pumpkinGroup.rotation.x = Math.PI; // 示範指令反轉座標軸
-                logMessage("🔄 偵測到軸向反轉指令 (invertAxis: true)");
-            }
+            // 套用座標與縮放
+            pumpkinGroup.position.set(pos[0], pos[1], pos[2]);
+            pumpkinGroup.scale.set(scl[0], scl[1], scl[2]);
 
-            // 樞紐與中心點校準到底部中心
-            pumpkinGroup.position.y = 0;
+            if (invertAxis) {
+                pumpkinGroup.rotation.x = Math.PI;
+                logMessage("🔄 偵測到軸向反轉指令");
+            }
 
             scene.add(pumpkinGroup);
             createdObjects.push(pumpkinGroup);
-            logMessage(`✅ 成功生成南瓜 (面數細分 segments: ${segments}, 軸向反轉: ${invertAxis})！`);
+            logMessage(`✅ 成功生成南瓜 (面數细分: ${segments}, 座標: [${pos}])！`);
         }
 
         function clearScene() {
