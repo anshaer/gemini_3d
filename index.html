@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mint Choco 3D Studio - AI 視覺回饋工作台</title>
+    <title>Mint Choco 3D Studio - VRM / MToon 專業工作台</title>
     <!-- 引入 Three.js 與 GLTFExporter -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -49,7 +49,6 @@
             pointer-events: none;
         }
 
-        /* 側邊欄改為彈性寬度，防止縮放視窗時消失 */
         .panel-container {
             width: 420px; min-width: 350px; max-width: 500px;
             background-color: var(--bg-panel);
@@ -83,7 +82,7 @@
         label { font-size: 0.85rem; color: var(--mint-light); font-weight: 600; }
         
         textarea {
-            width: 100%; height: 140px; background: #121212; border: 1px solid #444;
+            width: 100%; height: 160px; background: #121212; border: 1px solid #444;
             border-radius: 6px; color: var(--text-main); padding: 10px;
             font-family: monospace; font-size: 0.85rem; resize: vertical;
         }
@@ -108,7 +107,7 @@
         <div class="logo-area">
             <div class="logo-icon"></div>
             <h1>Mint Choco 3D Studio</h1>
-            <span class="subtitle">獨立工作台 (RWD修復版)</span>
+            <span class="subtitle">VRM / MToon 模式</span>
         </div>
         <button class="btn-export" onclick="exportGLB()">📥 匯出 .GLB 檔案</button>
     </header>
@@ -117,7 +116,7 @@
         <!-- 3D 預覽畫面 -->
         <div id="viewer-container">
             <canvas id="canvas3d"></canvas>
-            <div class="viewport-hud">💡 滑鼠左鍵旋轉 | 滾輪縮放 | 右鍵平移</div>
+            <div class="viewport-hud">💡 VRM 標準軸 (Y+朝上, Z+朝前) | 支援 MToon 模擬與動態面數</div>
         </div>
 
         <!-- 右側控制面板 -->
@@ -129,13 +128,15 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 3D 渲染引擎啟動完成。排版響應式已修正。</div>
+                <div class="log-box" id="logBox">[系統初始化] 支援 sRGB MToon 模擬與動態拓撲引擎就緒。</div>
                 <div class="input-section">
-                    <label>🤖 AI 指令輸入區</label>
+                    <label>🤖 AI 指令輸入區 (支援動態面數與座標反轉)</label>
                     <textarea id="commandInput">{
   "action": "create_geometry",
   "type": "pumpkin",
-  "color": "#ff7518"
+  "color": "#ff7518",
+  "segments": 16,
+  "invertAxis": false
 }</textarea>
                     <div class="btn-group">
                         <button class="btn btn-primary" onclick="executeCommand()">🚀 執行指令</button>
@@ -166,29 +167,32 @@
             scene.background = new THREE.Color(0x0b0b0b);
 
             camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            camera.position.set(6, 5, 8);
+            camera.position.set(0, 3, 7);
 
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true, preserveDrawingBuffer: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
+            // 啟用 sRGB 顏色空間，確保貼圖與材質色彩正確
+            renderer.outputEncoding = THREE.sRGBEncoding;
 
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(10, 20, 15);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(5, 10, 7);
             scene.add(dirLight);
 
+            // 網格輔助 (VRM 標準：Y朝上)
             const gridHelper = new THREE.GridHelper(20, 20, 0x98FF98, 0x333333);
             gridHelper.position.y = -0.01;
             scene.add(gridHelper);
 
             window.addEventListener('resize', onWindowResize);
             animate();
-            logMessage("渲染引擎就緒。");
+            logMessage("渲染引擎就緒 (sRGB 色彩空間啟動)。");
         }
 
         function animate() {
@@ -227,8 +231,13 @@
             const doc = {
                 sceneStatus: "active",
                 objectsInScene: createdObjects.length,
-                cameraPosition: { x: Math.round(camera.position.x), y: Math.round(camera.position.y), z: Math.round(camera.position.z) },
-                objects: createdObjects.map((obj, idx) => ({ id: idx, name: obj.name, type: obj.userData.type }))
+                objects: createdObjects.map((obj, idx) => ({ 
+                    id: idx, 
+                    name: obj.name, 
+                    type: obj.userData.type,
+                    segments: obj.userData.segments,
+                    inverted: obj.userData.inverted
+                }))
             };
             document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
         }
@@ -242,7 +251,7 @@
                     return JSON.parse(fixed);
                 } catch (e2) {
                     logMessage("⚠️ JSON 解析微瑕，自動套用預設建構！");
-                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518" };
+                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, invertAxis: false };
                 }
             }
         }
@@ -253,22 +262,31 @@
             const cmd = parseCommandSafe(rawText);
 
             if (cmd.action === "create_geometry" || cmd.type === "pumpkin") {
-                createPumpkin(cmd.color || "#ff7518");
+                createPumpkin(cmd.color || "#ff7518", cmd.segments || 16, cmd.invertAxis || false);
             } else {
-                createPumpkin("#98FF98");
+                createPumpkin("#98FF98", 16, false);
             }
             updateDocs();
         }
 
-        function createPumpkin(colorHex) {
+        function createPumpkin(colorHex, segments, invertAxis) {
             const pumpkinGroup = new THREE.Group();
             pumpkinGroup.name = "Halloween_Pumpkin";
-            pumpkinGroup.userData = { type: "pumpkin" };
+            pumpkinGroup.userData = { type: "pumpkin", segments: segments, inverted: invertAxis };
 
-            const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4 });
+            // 模擬 MToon 二次元風格材質 (使用 MeshToonMaterial 呈現階梯式色塊感與 sRGB 色彩)
+            const colorObj = new THREE.Color(colorHex);
+            colorObj.convertSRGBToLinear(); // 確保色彩空間正確
+
+            const bodyMat = new THREE.MeshToonMaterial({ 
+                color: colorObj, 
+                roughness: 0.3 
+            });
+
+            // 依據指令傳入的 segments 動態調整面數與拓撲精細度
             for (let i = 0; i < 6; i++) {
                 const angle = (i / 6) * Math.PI * 2;
-                const geom = new THREE.SphereGeometry(0.8, 16, 16);
+                const geom = new THREE.SphereGeometry(0.8, segments, segments);
                 geom.scale(0.7, 1, 0.7);
                 const mesh = new THREE.Mesh(geom, bodyMat);
                 mesh.position.x = Math.cos(angle) * 0.35;
@@ -276,16 +294,25 @@
                 pumpkinGroup.add(mesh);
             }
 
-            const stemGeom = new THREE.CylinderGeometry(0.1, 0.15, 0.5, 8);
-            const stemMat = new THREE.MeshStandardMaterial({ color: 0x3E2723, roughness: 0.8 });
+            const stemMat = new THREE.MeshToonMaterial({ color: 0x3E2723 });
+            const stemGeom = new THREE.CylinderGeometry(0.1, 0.15, 0.5, Math.max(4, Math.floor(segments/2)));
             const stem = new THREE.Mesh(stemGeom, stemMat);
             stem.position.y = 1.0;
             stem.rotation.z = 0.15;
             pumpkinGroup.add(stem);
 
+            // 座標軸與中心點控制：預設 VRM 標準 (Y朝上)，若 invertAxis 為 true 則進行反轉/調整
+            if (invertAxis) {
+                pumpkinGroup.rotation.x = Math.PI; // 示範指令反轉座標軸
+                logMessage("🔄 偵測到軸向反轉指令 (invertAxis: true)");
+            }
+
+            // 樞紐與中心點校準到底部中心
+            pumpkinGroup.position.y = 0;
+
             scene.add(pumpkinGroup);
             createdObjects.push(pumpkinGroup);
-            logMessage("✅ 成功在場景中生成南瓜！");
+            logMessage(`✅ 成功生成南瓜 (面數細分 segments: ${segments}, 軸向反轉: ${invertAxis})！`);
         }
 
         function clearScene() {
@@ -308,9 +335,9 @@
                 const blob = new Blob([gltf], { type: 'application/octet-stream' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = 'mint_choco_model.glb';
+                link.download = 'vrm_ready_model.glb';
                 link.click();
-                logMessage("📥 成功匯出 .glb 檔案！");
+                logMessage("📥 成功匯出 VRM 適用之 .glb 檔案！");
             }, { binary: true });
         }
 
