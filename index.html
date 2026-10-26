@@ -123,7 +123,7 @@
         <!-- 3D 預覽畫面 -->
         <div id="viewer-container">
             <canvas id="canvas3d"></canvas>
-            <div class="viewport-hud">💡 支援一鍵複製狀態文檔</div>
+            <div class="viewport-hud">💡 支援群組階層、命名規範與一鍵複製文檔</div>
         </div>
 
         <!-- 右側控制面板 -->
@@ -135,7 +135,7 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 狀態文檔已支援一鍵複製按鈕。</div>
+                <div class="log-box" id="logBox">[系統初始化] 完整工作台就緒。等待 AI 指令輸入。</div>
                 <div class="input-section">
                     <label>🤖 AI 指令輸入區</label>
                     <textarea id="commandInput">{
@@ -157,7 +157,7 @@
             <!-- 文檔分頁 -->
             <div id="tab-docs" class="tab-content">
                 <div class="doc-header">
-                    <label>📋 場景狀態文檔</label>
+                    <label>📋 場景狀態文檔 (含群組階層與命名規範)</label>
                     <button class="btn-copy" onclick="copyStateDoc()">📋 複製文檔</button>
                 </div>
                 <div class="doc-box" id="docBox">{
@@ -290,7 +290,6 @@
             document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
         }
 
-        // 複製狀態文檔功能
         function copyStateDoc() {
             const textToCopy = document.getElementById('docBox').innerText;
             navigator.clipboard.writeText(textToCopy).then(() => {
@@ -372,7 +371,7 @@
 
             scene.add(pumpkinGroup);
             createdObjects.push(pumpkinGroup);
-            logMessage(`✅ 成功生成南瓜並更新文檔！`);
+            logMessage(`✅ 成功生成南瓜 (群組階層建立完成)！`);
         }
 
         function clearScene() {
