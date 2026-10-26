@@ -249,3 +249,159 @@
                         const geom = child.geometry;
                         let tris = 0;
                         if (geom.index) {
+                            tris = geom.index.count / 3;
+                        } else if (geom.attributes.position) {
+                            tris = geom.attributes.position.count / 3;
+                        }
+                        objTris += tris;
+                        childrenNodes.push({
+                            nodeName: child.name || "Unnamed_Mesh",
+                            namingConvention: "PascalCase",
+                            triangleCount: tris
+                        });
+                    }
+                });
+                totalTris += objTris;
+
+                return {
+                    nodeId: idx,
+                    parentGroup: obj.name,
+                    namingConvention: "PascalCase (VRM Standard)",
+                    totalGroupTriangles: objTris,
+                    transform: {
+                        position: [Number(obj.position.x.toFixed(2)), Number(obj.position.y.toFixed(2)), Number(obj.position.z.toFixed(2))],
+                        scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))]
+                    },
+                    properties: {
+                        segments: obj.userData.segments || 16,
+                        invertedAxis: obj.userData.inverted || false
+                    },
+                    childrenNodes: childrenNodes
+                };
+            });
+
+            const doc = {
+                sceneStatus: "active",
+                totalObjects: createdObjects.length,
+                totalTriangles: totalTris,
+                cameraPosition: [Number(camera.position.x.toFixed(2)), Number(camera.position.y.toFixed(2)), Number(camera.position.z.toFixed(2))],
+                hierarchyTree: hierarchyTree
+            };
+            document.getElementById('docBox').innerText = JSON.stringify(doc, null, 2);
+        }
+
+        // 複製狀態文檔功能
+        function copyStateDoc() {
+            const textToCopy = document.getElementById('docBox').innerText;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                logMessage("📋 狀態文檔已成功複製到剪貼簿！");
+            }).catch(err => {
+                logMessage("❌ 複製失敗：" + err);
+            });
+        }
+
+        function parseCommandSafe(rawText) {
+            try {
+                return JSON.parse(rawText);
+            } catch (e1) {
+                try {
+                    let fixed = rawText.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":');
+                    return JSON.parse(fixed);
+                } catch (e2) {
+                    logMessage("⚠️ JSON 解析微瑕，自動套用預設建構！");
+                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, position: [0,0,0], scale: [1,1,1], invertAxis: false };
+                }
+            }
+        }
+
+        function executeCommand() {
+            const rawText = document.getElementById('commandInput').value;
+            logMessage("執行自訂指令...");
+            const cmd = parseCommandSafe(rawText);
+
+            if (cmd.action === "create_geometry" || cmd.type === "pumpkin") {
+                createPumpkin(
+                    cmd.color || "#ff7518", 
+                    cmd.segments || 16, 
+                    cmd.position || [0, 0, 0], 
+                    cmd.scale || [1, 1, 1], 
+                    cmd.invertAxis || false
+                );
+            } else {
+                createPumpkin("#98FF98", 16, [0, 0, 0], [1, 1, 1], false);
+            }
+            updateDocs();
+        }
+
+        function createPumpkin(colorHex, segments, pos, scl, invertAxis) {
+            const pumpkinGroup = new THREE.Group();
+            pumpkinGroup.name = "HalloweenPumpkin_" + (createdObjects.length + 1);
+            pumpkinGroup.userData = { type: "pumpkin", segments: segments, inverted: invertAxis };
+
+            const colorObj = new THREE.Color(colorHex);
+            colorObj.convertSRGBToLinear();
+
+            const bodyMat = new THREE.MeshToonMaterial({ color: colorObj, roughness: 0.3 });
+
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const geom = new THREE.SphereGeometry(0.8, segments, segments);
+                geom.scale(0.7, 1, 0.7);
+                const mesh = new THREE.Mesh(geom, bodyMat);
+                mesh.name = `PumpkinBodyPart_${i+1}`;
+                mesh.position.x = Math.cos(angle) * 0.35;
+                mesh.position.z = Math.sin(angle) * 0.35;
+                pumpkinGroup.add(mesh);
+            }
+
+            const stemMat = new THREE.MeshToonMaterial({ color: 0x3E2723 });
+            const stemGeom = new THREE.CylinderGeometry(0.1, 0.15, 0.5, Math.max(4, Math.floor(segments/2)));
+            const stem = new THREE.Mesh(stemGeom, stemMat);
+            stem.name = "PumpkinStem";
+            stem.position.y = 1.0;
+            stem.rotation.z = 0.15;
+            pumpkinGroup.add(stem);
+
+            pumpkinGroup.position.set(pos[0], pos[1], pos[2]);
+            pumpkinGroup.scale.set(scl[0], scl[1], scl[2]);
+
+            if (invertAxis) {
+                pumpkinGroup.rotation.x = Math.PI;
+                logMessage("🔄 偵測到軸向反轉指令");
+            }
+
+            scene.add(pumpkinGroup);
+            createdObjects.push(pumpkinGroup);
+            logMessage(`✅ 成功生成南瓜並更新文檔！`);
+        }
+
+        function clearScene() {
+            createdObjects.forEach(obj => scene.remove(obj));
+            createdObjects = [];
+            logMessage("🗑️ 場景已清空。");
+            updateDocs();
+        }
+
+        function exportGLB() {
+            if (createdObjects.length === 0) {
+                alert("目前場景沒有任何物件可匯出！");
+                return;
+            }
+            const exporter = new THREE.GLTFExporter();
+            const exportGroup = new THREE.Group();
+            createdObjects.forEach(obj => exportGroup.add(obj.clone()));
+
+            exporter.parse(exportGroup, function (gltf) {
+                const blob = new Blob([gltf], { type: 'application/octet-stream' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'vrm_ready_model.glb';
+                link.click();
+                logMessage("📥 成功匯出 VRM 適用之 .glb 檔案！");
+            }, { binary: true });
+        }
+
+        window.onload = init3D;
+    </script>
+</body>
+</html>
