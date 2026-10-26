@@ -114,7 +114,7 @@
         <div class="logo-area">
             <div class="logo-icon"></div>
             <h1>Mint Choco 3D Studio</h1>
-            <span class="subtitle">VRM / MToon 模式</span>
+            <span class="subtitle">VRM / MToon 模式 (支援動物/生物擴充)</span>
         </div>
         <button class="btn-export" onclick="exportGLB()">📥 匯出 .GLB 檔案</button>
     </header>
@@ -123,7 +123,7 @@
         <!-- 3D 預覽畫面 -->
         <div id="viewer-container">
             <canvas id="canvas3d"></canvas>
-            <div class="viewport-hud">💡 支援群組階層、命名規範與一鍵複製文檔</div>
+            <div class="viewport-hud">💡 支援多種生物幾何體與群組階層追蹤</div>
         </div>
 
         <!-- 右側控制面板 -->
@@ -135,14 +135,15 @@
 
             <!-- 終端分頁 -->
             <div id="tab-terminal" class="tab-content active">
-                <div class="log-box" id="logBox">[系統初始化] 完整工作台就緒。等待 AI 指令輸入。</div>
+                <div class="log-box" id="logBox">[系統初始化] 史萊姆生成模組載入完成。</div>
                 <div class="input-section">
                     <label>🤖 AI 指令輸入區</label>
                     <textarea id="commandInput">{
   "action": "create_geometry",
-  "type": "pumpkin",
-  "color": "#ff7518",
-  "segments": 16,
+  "type": "slime",
+  "color": "#98FF98",
+  "toppingColor": "#3E2723",
+  "segments": 24,
   "position": [0, 0, 0],
   "scale": [1, 1, 1],
   "invertAxis": false
@@ -157,7 +158,7 @@
             <!-- 文檔分頁 -->
             <div id="tab-docs" class="tab-content">
                 <div class="doc-header">
-                    <label>📋 場景狀態文檔 (含群組階層與命名規範)</label>
+                    <label>📋 場景狀態文檔</label>
                     <button class="btn-copy" onclick="copyStateDoc()">📋 複製文檔</button>
                 </div>
                 <div class="doc-box" id="docBox">{
@@ -273,7 +274,8 @@
                         scale: [Number(obj.scale.x.toFixed(2)), Number(obj.scale.y.toFixed(2)), Number(obj.scale.z.toFixed(2))]
                     },
                     properties: {
-                        segments: obj.userData.segments || 16,
+                        type: obj.userData.type,
+                        segments: obj.userData.segments || 20,
                         invertedAxis: obj.userData.inverted || false
                     },
                     childrenNodes: childrenNodes
@@ -308,7 +310,7 @@
                     return JSON.parse(fixed);
                 } catch (e2) {
                     logMessage("⚠️ JSON 解析微瑕，自動套用預設建構！");
-                    return { action: "create_geometry", type: "pumpkin", color: "#ff7518", segments: 16, position: [0,0,0], scale: [1,1,1], invertAxis: false };
+                    return { action: "create_geometry", type: "slime", color: "#98FF98", toppingColor: "#3E2723", segments: 20, position: [0,0,0], scale: [1,1,1], invertAxis: false };
                 }
             }
         }
@@ -318,7 +320,17 @@
             logMessage("執行自訂指令...");
             const cmd = parseCommandSafe(rawText);
 
-            if (cmd.action === "create_geometry" || cmd.type === "pumpkin") {
+            if (cmd.type === "slime") {
+                createSlime(
+                    cmd.color || "#98FF98",
+                    cmd.toppingColor || "#3E2723",
+                    cmd.segments || 20,
+                    cmd.position || [0, 0, 0],
+                    cmd.scale || [1, 1, 1],
+                    cmd.invertAxis || false
+                );
+            } else {
+                // 預設或相容南瓜
                 createPumpkin(
                     cmd.color || "#ff7518", 
                     cmd.segments || 16, 
@@ -326,10 +338,51 @@
                     cmd.scale || [1, 1, 1], 
                     cmd.invertAxis || false
                 );
-            } else {
-                createPumpkin("#98FF98", 16, [0, 0, 0], [1, 1, 1], false);
             }
             updateDocs();
+        }
+
+        // 新增：薄荷巧克力史萊姆生成函式
+        function createSlime(colorHex, toppingHex, segments, pos, scl, invertAxis) {
+            const slimeGroup = new THREE.Group();
+            slimeGroup.name = "MintChocoSlime_" + (createdObjects.length + 1);
+            slimeGroup.userData = { type: "slime", segments: segments, inverted: invertAxis };
+
+            // 史萊姆本體材質 (MToon 模擬)
+            const bodyColor = new THREE.Color(colorHex);
+            bodyColor.convertSRGBToLinear();
+            const bodyMat = new THREE.MeshToonMaterial({ color: bodyColor, roughness: 0.2 });
+
+            const bodyGeom = new THREE.SphereGeometry(0.9, segments, segments);
+            bodyGeom.scale(1.2, 0.8, 1.2); // 壓扁呈現Q彈果凍感
+            const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+            bodyMesh.name = "SlimeBody";
+            bodyMesh.position.y = 0.7;
+            slimeGroup.add(bodyMesh);
+
+            // 頂部巧克力裝飾
+            const toppingColor = new THREE.Color(toppingHex);
+            toppingColor.convertSRGBToLinear();
+            const toppingMat = new THREE.MeshToonMaterial({ color: toppingColor, roughness: 0.4 });
+
+            const toppingGeom = new THREE.SphereGeometry(0.3, segments/2, segments/2);
+            toppingGeom.scale(1, 0.6, 1);
+            const toppingMesh = new THREE.Mesh(toppingGeom, toppingMat);
+            toppingMesh.name = "ChocoTopping";
+            toppingMesh.position.set(0, 1.35, 0);
+            slimeGroup.add(toppingMesh);
+
+            slimeGroup.position.set(pos[0], pos[1], pos[2]);
+            slimeGroup.scale.set(scl[0], scl[1], scl[2]);
+
+            if (invertAxis) {
+                slimeGroup.rotation.x = Math.PI;
+                logMessage("🔄 偵測到軸向反轉指令");
+            }
+
+            scene.add(slimeGroup);
+            createdObjects.push(slimeGroup);
+            logMessage(`✅ 成功生成薄荷巧克力史萊姆！`);
         }
 
         function createPumpkin(colorHex, segments, pos, scl, invertAxis) {
@@ -339,7 +392,6 @@
 
             const colorObj = new THREE.Color(colorHex);
             colorObj.convertSRGBToLinear();
-
             const bodyMat = new THREE.MeshToonMaterial({ color: colorObj, roughness: 0.3 });
 
             for (let i = 0; i < 6; i++) {
@@ -366,12 +418,11 @@
 
             if (invertAxis) {
                 pumpkinGroup.rotation.x = Math.PI;
-                logMessage("🔄 偵測到軸向反轉指令");
             }
 
             scene.add(pumpkinGroup);
             createdObjects.push(pumpkinGroup);
-            logMessage(`✅ 成功生成南瓜 (群組階層建立完成)！`);
+            logMessage(`✅ 成功生成南瓜！`);
         }
 
         function clearScene() {
